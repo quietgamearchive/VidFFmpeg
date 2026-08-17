@@ -29,31 +29,31 @@ jobs:
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pyinstaller
+          python -m pip install nuitka
           python -m pip install -r requirements.txt
 
       - name: Build CLI
         shell: pwsh
         run: |
-          pyinstaller `
-            --clean `
-            --noconfirm `
-            --onedir `
-            --icon=VidFFmpeg.ico `
-            --name VidFFmpeg_CLI-win-x64 `
+          python -m nuitka `
+            --mode=standalone `
+            --assume-yes-for-downloads `
+            --windows-console-mode=force `
+            --windows-icon-from-ico=VidFFmpeg.ico `
+            --output-dir=build `
+            --output-filename=VidFFmpeg_CLI-win-x64.exe `
             VidFFmpeg_CLI.py
 
       - name: Build GUI
         shell: pwsh
         run: |
-          pyinstaller `
-            --clean `
-            --noconfirm `
-            --onedir `
-            --windowed `
-            --icon=VidFFmpeg.ico `
-            --collect-all tkinterdnd2 `
-            --name VidFFmpeg_GUI-win-x64 `
+          python -m nuitka `
+            --mode=standalone `
+            --assume-yes-for-downloads `
+            --windows-console-mode=disable `
+            --windows-icon-from-ico=VidFFmpeg.ico `
+            --output-dir=build `
+            --output-filename=VidFFmpeg_GUI-win-x64.exe `
             VidFFmpeg_GUI.py
 
       - name: Prepare CLI package
@@ -64,13 +64,13 @@ jobs:
 
           Copy-Item `
             -Recurse `
-            profiles/* `
-            release/VidFFmpeg_CLI-win-x64/profiles/
+            build/VidFFmpeg_CLI.dist/* `
+            release/VidFFmpeg_CLI-win-x64/
 
           Copy-Item `
             -Recurse `
-            dist/VidFFmpeg_CLI-win-x64/* `
-            release/VidFFmpeg_CLI-win-x64/
+            profiles/* `
+            release/VidFFmpeg_CLI-win-x64/profiles/
 
       - name: Prepare GUI package
         shell: pwsh
@@ -80,13 +80,13 @@ jobs:
 
           Copy-Item `
             -Recurse `
-            profiles/* `
-            release/VidFFmpeg_GUI-win-x64/profiles/
+            build/VidFFmpeg_GUI.dist/* `
+            release/VidFFmpeg_GUI-win-x64/
 
           Copy-Item `
             -Recurse `
-            dist/VidFFmpeg_GUI-win-x64/* `
-            release/VidFFmpeg_GUI-win-x64/
+            profiles/* `
+            release/VidFFmpeg_GUI-win-x64/profiles/
 
           Copy-Item `
             VidFFmpeg.ico `
@@ -145,6 +145,8 @@ jobs:
             git \
             binutils \
             ca-certificates \
+            patchelf \
+            ccache \
             tar
 
       - name: Checkout
@@ -154,28 +156,27 @@ jobs:
         shell: bash
         run: |
           python3 -m pip install --upgrade pip
-          python3 -m pip install pyinstaller
+          python3 -m pip install nuitka
           python3 -m pip install -r requirements.txt
 
       - name: Build CLI
         shell: bash
         run: |
-          pyinstaller \
-            --clean \
-            --noconfirm \
-            --onedir \
-            --name VidFFmpeg_CLI-linux-x64 \
+          python3 -m nuitka \
+            --mode=standalone \
+            --assume-yes-for-downloads \
+            --output-dir=build \
+            --output-filename=VidFFmpeg_CLI-linux-x64 \
             VidFFmpeg_CLI.py
 
       - name: Build GUI
         shell: bash
         run: |
-          pyinstaller \
-            --clean \
-            --noconfirm \
-            --onedir \
-            --collect-all tkinterdnd2 \
-            --name VidFFmpeg_GUI-linux-x64 \
+          python3 -m nuitka \
+            --mode=standalone \
+            --assume-yes-for-downloads \
+            --output-dir=build \
+            --output-filename=VidFFmpeg_GUI-linux-x64 \
             VidFFmpeg_GUI.py
 
       - name: Prepare CLI package
@@ -185,7 +186,7 @@ jobs:
             release/VidFFmpeg_CLI-linux-x64/profiles
 
           cp -r \
-            dist/VidFFmpeg_CLI-linux-x64/* \
+            build/VidFFmpeg_CLI.dist/* \
             release/VidFFmpeg_CLI-linux-x64/
 
           cp -r \
@@ -202,7 +203,7 @@ jobs:
             release/VidFFmpeg_GUI-linux-x64/profiles
 
           cp -r \
-            dist/VidFFmpeg_GUI-linux-x64/* \
+            build/VidFFmpeg_GUI.dist/* \
             release/VidFFmpeg_GUI-linux-x64/
 
           cp -r \
