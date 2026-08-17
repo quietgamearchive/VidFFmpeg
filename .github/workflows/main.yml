@@ -52,6 +52,7 @@ jobs:
             --assume-yes-for-downloads `
             --windows-console-mode=force `
             --windows-icon-from-ico=VidFFmpeg.ico `
+            --enable-plugin=tk-inter `
             --include-package=tkinterdnd2 `
             --output-dir=build `
             --output-filename=VidFFmpeg_GUI-win-x64.exe `
@@ -171,6 +172,7 @@ jobs:
           python -m nuitka \
             --mode=standalone \
             --assume-yes-for-downloads \
+            --enable-plugin=tk-inter \
             --include-package=tkinterdnd2 \
             --output-dir=build \
             --output-filename=VidFFmpeg_GUI-linux-x64 \
