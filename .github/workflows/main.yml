@@ -50,7 +50,7 @@ jobs:
           python -m nuitka `
             --mode=standalone `
             --assume-yes-for-downloads `
-            --windows-console-mode=force `
+            --windows-console-mode=disable `
             --windows-icon-from-ico=VidFFmpeg.ico `
             --enable-plugin=tk-inter `
             --include-package=tkinterdnd2 `
