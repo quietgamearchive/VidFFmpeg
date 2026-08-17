@@ -53,7 +53,7 @@ def show_config(root, config):
     ffmpeg_entry.place(
         x=90,
         y=10,
-        width=424,
+        width=435,
         height=24
     )
 
@@ -69,7 +69,7 @@ def show_config(root, config):
     ffprobe_entry.place(
         x=90,
         y=40,
-        width=424,
+        width=435,
         height=24
     )
 
