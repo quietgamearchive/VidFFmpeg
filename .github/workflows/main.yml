@@ -130,7 +130,7 @@ jobs:
     runs-on: ubuntu-latest
 
     container:
-      image: debian:11
+      image: debian:13
 
     steps:
       - name: Install system packages
@@ -142,11 +142,12 @@ jobs:
             python3-pip \
             python3-tk \
             gcc \
+            g++ \
             git \
             binutils \
-            ca-certificates \
             patchelf \
             ccache \
+            ca-certificates \
             tar
 
       - name: Checkout
