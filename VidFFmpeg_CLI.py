@@ -4,7 +4,11 @@ sys.dont_write_bytecode = True
 from pathlib import Path
 
 
-BASE_DIR = Path(__file__).resolve().parent
+
+if getattr(sys, "frozen", False):
+    BASE_DIR = Path(sys.executable).resolve().parent
+else:
+    BASE_DIR = Path(__file__).resolve().parent
 
 # The embedded Python runtime does not always put the script directory on
 # sys.path.  ``cli`` is a package inside BASE_DIR, so add BASE_DIR itself.
