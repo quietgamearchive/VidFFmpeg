@@ -1,40 +1,14 @@
 Changelog
+===============================
 
-1. queue_win
-VidFFmpeg - Queue Tool
+VidFFmpeg_CLI
 
-v1.01 Rev.260809
-- Added "a. Check missing files" option.
+v1.00 Rev.260817
+Initial version, combining the functionality of the two previous scripts.
 
-v1.00 Rev.260808
-- First stable release.
-- Version 1.0 was assigned as the first stable milestone.
-- Initial development date: 2026-07-16.
+-------------------------------
 
+VidFFmpeg_GUI
 
-
-
-
-
-2. convertor
-VidFFmpeg - Converter
-
-v1.00 Rev.260808
-- First stable release.
-- Version 1.0 was assigned as the first stable milestone.
-- Initial development date: 2026-07-18.
-
-
-
-
-
-
-
-3. GUI_Queue_Manager
-VidFFmpeg - GUI Queue Manager
-
-v1.00 Rev.260811
-- Initial version.
-- Started development of the GUI queue manager.
-
-
+v1.00 Rev.260817
+Initial version.
