@@ -1,0 +1,290 @@
+name: Build VidFFmpeg
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (leave empty to test only)"
+        required: false
+        default: ""
+
+jobs:
+  windows:
+    name: Windows Build
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller
+          python -m pip install -r requirements.txt
+
+      - name: Build CLI
+        shell: pwsh
+        run: |
+          pyinstaller `
+            --clean `
+            --noconfirm `
+            --onedir `
+            --icon=VidFFmpeg.ico `
+            --name VidFFmpeg_CLI-win-x64 `
+            VidFFmpeg_CLI.py
+
+      - name: Build GUI
+        shell: pwsh
+        run: |
+          pyinstaller `
+            --clean `
+            --noconfirm `
+            --onedir `
+            --windowed `
+            --icon=VidFFmpeg.ico `
+            --collect-all tkinterdnd2 `
+            --name VidFFmpeg_GUI-win-x64 `
+            VidFFmpeg_GUI.py
+
+      - name: Prepare CLI package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force `
+            -Path release/VidFFmpeg_CLI-win-x64/profiles
+
+          Copy-Item `
+            -Recurse `
+            profiles/* `
+            release/VidFFmpeg_CLI-win-x64/profiles/
+
+          Copy-Item `
+            -Recurse `
+            dist/VidFFmpeg_CLI-win-x64/* `
+            release/VidFFmpeg_CLI-win-x64/
+
+      - name: Prepare GUI package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force `
+            -Path release/VidFFmpeg_GUI-win-x64/profiles
+
+          Copy-Item `
+            -Recurse `
+            profiles/* `
+            release/VidFFmpeg_GUI-win-x64/profiles/
+
+          Copy-Item `
+            -Recurse `
+            dist/VidFFmpeg_GUI-win-x64/* `
+            release/VidFFmpeg_GUI-win-x64/
+
+          Copy-Item `
+            VidFFmpeg.ico `
+            release/VidFFmpeg_GUI-win-x64/
+
+      - name: Create CLI ZIP
+        shell: pwsh
+        run: |
+          Compress-Archive `
+            -Path release/VidFFmpeg_CLI-win-x64 `
+            -DestinationPath VidFFmpeg_CLI-win-x64.zip
+
+      - name: Create GUI ZIP
+        shell: pwsh
+        run: |
+          Compress-Archive `
+            -Path release/VidFFmpeg_GUI-win-x64 `
+            -DestinationPath VidFFmpeg_GUI-win-x64.zip
+
+      - name: Show Windows packages
+        shell: pwsh
+        run: |
+          Write-Host "================================"
+          Write-Host "Windows packages"
+          Write-Host "================================"
+
+          Get-ChildItem *.zip | Format-Table Name, Length
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: |
+            VidFFmpeg_CLI-win-x64.zip
+            VidFFmpeg_GUI-win-x64.zip
+          retention-days: 1
+
+
+  linux:
+    name: Linux Build
+    runs-on: ubuntu-latest
+
+    container:
+      image: debian:11
+
+    steps:
+      - name: Install system packages
+        shell: bash
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            python3 \
+            python3-pip \
+            python3-tk \
+            gcc \
+            git \
+            binutils \
+            ca-certificates \
+            tar
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install pyinstaller
+          python3 -m pip install -r requirements.txt
+
+      - name: Build CLI
+        shell: bash
+        run: |
+          pyinstaller \
+            --clean \
+            --noconfirm \
+            --onedir \
+            --name VidFFmpeg_CLI-linux-x64 \
+            VidFFmpeg_CLI.py
+
+      - name: Build GUI
+        shell: bash
+        run: |
+          pyinstaller \
+            --clean \
+            --noconfirm \
+            --onedir \
+            --collect-all tkinterdnd2 \
+            --name VidFFmpeg_GUI-linux-x64 \
+            VidFFmpeg_GUI.py
+
+      - name: Prepare CLI package
+        shell: bash
+        run: |
+          mkdir -p \
+            release/VidFFmpeg_CLI-linux-x64/profiles
+
+          cp -r \
+            dist/VidFFmpeg_CLI-linux-x64/* \
+            release/VidFFmpeg_CLI-linux-x64/
+
+          cp -r \
+            profiles/* \
+            release/VidFFmpeg_CLI-linux-x64/profiles/
+
+          chmod +x \
+            release/VidFFmpeg_CLI-linux-x64/VidFFmpeg_CLI-linux-x64
+
+      - name: Prepare GUI package
+        shell: bash
+        run: |
+          mkdir -p \
+            release/VidFFmpeg_GUI-linux-x64/profiles
+
+          cp -r \
+            dist/VidFFmpeg_GUI-linux-x64/* \
+            release/VidFFmpeg_GUI-linux-x64/
+
+          cp -r \
+            profiles/* \
+            release/VidFFmpeg_GUI-linux-x64/profiles/
+
+          chmod +x \
+            release/VidFFmpeg_GUI-linux-x64/VidFFmpeg_GUI-linux-x64
+
+      - name: Create CLI TAR
+        shell: bash
+        run: |
+          tar -czf \
+            VidFFmpeg_CLI-linux-x64.tar.gz \
+            -C release \
+            VidFFmpeg_CLI-linux-x64
+
+      - name: Create GUI TAR
+        shell: bash
+        run: |
+          tar -czf \
+            VidFFmpeg_GUI-linux-x64.tar.gz \
+            -C release \
+            VidFFmpeg_GUI-linux-x64
+
+      - name: Show Linux packages
+        shell: bash
+        run: |
+          echo "================================"
+          echo "Linux packages"
+          echo "================================"
+
+          ls -lh *.tar.gz
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-linux
+          path: |
+            VidFFmpeg_CLI-linux-x64.tar.gz
+            VidFFmpeg_GUI-linux-x64.tar.gz
+          retention-days: 1
+
+
+  release:
+    name: Release
+    needs:
+      - windows
+      - linux
+
+    if: ${{ github.event.inputs.version != '' }}
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download Windows release files
+        uses: actions/download-artifact@v4
+        with:
+          name: release-windows
+          path: release
+
+      - name: Download Linux release files
+        uses: actions/download-artifact@v4
+        with:
+          name: release-linux
+          path: release
+
+      - name: Show release files
+        shell: bash
+        run: |
+          echo "================================"
+          echo "Release files"
+          echo "================================"
+
+          ls -lh release
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.version }}
+          name: ${{ github.event.inputs.version }}
+          body: ""
+          files: |
+            release/VidFFmpeg_CLI-win-x64.zip
+            release/VidFFmpeg_GUI-win-x64.zip
+            release/VidFFmpeg_CLI-linux-x64.tar.gz
+            release/VidFFmpeg_GUI-linux-x64.tar.gz
+          generate_release_notes: false
