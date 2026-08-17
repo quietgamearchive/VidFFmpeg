@@ -50,8 +50,9 @@ jobs:
           python -m nuitka `
             --mode=standalone `
             --assume-yes-for-downloads `
-            --windows-console-mode=disable `
+            --windows-console-mode=force `
             --windows-icon-from-ico=VidFFmpeg.ico `
+            --include-package=tkinterdnd2 `
             --output-dir=build `
             --output-filename=VidFFmpeg_GUI-win-x64.exe `
             VidFFmpeg_GUI.py
@@ -129,41 +130,35 @@ jobs:
     name: Linux Build
     runs-on: ubuntu-latest
 
-    container:
-      image: debian:13
-
     steps:
-      - name: Install system packages
-        shell: bash
-        run: |
-          apt-get update
-          DEBIAN_FRONTEND=noninteractive apt-get install -y \
-            python3 \
-            python3-pip \
-            python3-tk \
-            gcc \
-            g++ \
-            git \
-            binutils \
-            patchelf \
-            ccache \
-            ca-certificates \
-            tar
-
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install system dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            python3-tk \
+            patchelf \
+            ccache
 
       - name: Install dependencies
         shell: bash
         run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install nuitka
-          python3 -m pip install -r requirements.txt
+          python -m pip install --upgrade pip
+          python -m pip install nuitka
+          python -m pip install -r requirements.txt
 
       - name: Build CLI
         shell: bash
         run: |
-          python3 -m nuitka \
+          python -m nuitka \
             --mode=standalone \
             --assume-yes-for-downloads \
             --output-dir=build \
@@ -173,9 +168,10 @@ jobs:
       - name: Build GUI
         shell: bash
         run: |
-          python3 -m nuitka \
+          python -m nuitka \
             --mode=standalone \
             --assume-yes-for-downloads \
+            --include-package=tkinterdnd2 \
             --output-dir=build \
             --output-filename=VidFFmpeg_GUI-linux-x64 \
             VidFFmpeg_GUI.py
