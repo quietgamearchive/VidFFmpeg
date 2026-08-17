@@ -11,7 +11,11 @@ import re
 import atexit
 from tkinter import messagebox
 
-BASE_DIR = Path(__file__).parent
+
+if getattr(sys, "frozen", False):
+    BASE_DIR = Path(sys.executable).resolve().parent
+else:
+    BASE_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE_DIR))
 
 from gui.menu import create_menu
