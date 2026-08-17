@@ -136,10 +136,10 @@ def show_about(
     info = (
         f"{window_title}\n"
         "\n"
-        "A simple GUI queue manager for VidFFmpeg.\n"
-        "\n"
-        "Copyright © 2026\n"
-        "All rights reserved."
+        "VidFFmpeg is a lightweight FFmpeg batch transcoding queue manager.\n"
+        # "\n"
+        # "Copyright © 2026\n"
+        # "All rights reserved."
     )
 
     label = tk.Label(
