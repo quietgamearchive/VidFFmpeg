@@ -280,14 +280,64 @@ jobs:
           ls -lh release
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        id: create_release
+        uses: actions/github-script@v7
+        env:
+          VERSION: ${{ github.event.inputs.version }}
         with:
-          tag_name: ${{ github.event.inputs.version }}
-          name: ${{ github.event.inputs.version }}
-          body: ""
-          files: |
-            release/VidFFmpeg_CLI-win-x64.zip
-            release/VidFFmpeg_GUI-win-x64.zip
-            release/VidFFmpeg_CLI-linux-x64.tar.gz
-            release/VidFFmpeg_GUI-linux-x64.tar.gz
-          generate_release_notes: false
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+
+            const version = process.env.VERSION;
+
+            console.log("================================");
+            console.log(`Creating release: ${version}`);
+            console.log("================================");
+
+            const release = await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: version,
+              name: version,
+              body: "",
+              draft: false,
+              prerelease: false,
+              generate_release_notes: false
+            });
+
+            console.log(`Release created: ${release.data.html_url}`);
+
+            const files = [
+              'release/VidFFmpeg_CLI-win-x64.zip',
+              'release/VidFFmpeg_GUI-win-x64.zip',
+              'release/VidFFmpeg_CLI-linux-x64.tar.gz',
+              'release/VidFFmpeg_GUI-linux-x64.tar.gz'
+            ];
+
+            for (const file of files) {
+              console.log("================================");
+              console.log(`Uploading: ${file}`);
+              console.log("================================");
+
+              const fileData = fs.readFileSync(file);
+
+              await github.rest.repos.uploadReleaseAsset({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: release.data.id,
+                name: path.basename(file),
+                data: fileData,
+                headers: {
+                  'content-type': 'application/octet-stream',
+                  'content-length': fileData.length
+                }
+              });
+
+              console.log(`Uploaded: ${path.basename(file)}`);
+            }
+
+            console.log("================================");
+            console.log("Release completed successfully");
+            console.log("================================");
