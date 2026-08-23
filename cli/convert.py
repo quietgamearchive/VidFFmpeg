@@ -18,11 +18,11 @@ from .config import (
     QUEUE_FILE
 )
 from .queuefile import load_queue, save_queue
+from common.single_instance import acquire_single_instance
 
 
 FINISHED_FILE = BASE_DIR / "finished.txt"
 ERROR_FILE = BASE_DIR / "error.txt"
-LOCK_FILE = BASE_DIR / "vf_cli_convert.lock"
 
 
 stop_after_current = False
@@ -36,114 +36,7 @@ pending_enter = False
 enter_event = threading.Event()
 stdin_state_lock = threading.Lock()
 
-conversion_lock_file = None
 stdin_listener_stop = threading.Event()
-
-
-# ==========================
-# Conversion lock
-# ==========================
-
-def acquire_conversion_lock():
-    global conversion_lock_file
-
-    try:
-        conversion_lock_file = open(
-            LOCK_FILE,
-            "a+"
-        )
-
-        if platform.system() == "Windows":
-            import msvcrt
-
-            conversion_lock_file.seek(0)
-
-            try:
-                # Make sure the file contains at least one byte.
-                conversion_lock_file.write("1")
-                conversion_lock_file.flush()
-                conversion_lock_file.seek(0)
-
-                msvcrt.locking(
-                    conversion_lock_file.fileno(),
-                    msvcrt.LK_NBLCK,
-                    1
-                )
-
-            except OSError:
-                conversion_lock_file.close()
-                conversion_lock_file = None
-                return False
-
-        else:
-            import fcntl
-
-            try:
-                fcntl.flock(
-                    conversion_lock_file.fileno(),
-                    fcntl.LOCK_EX | fcntl.LOCK_NB
-                )
-
-            except OSError:
-                conversion_lock_file.close()
-                conversion_lock_file = None
-                return False
-
-        return True
-
-    except OSError:
-        if conversion_lock_file is not None:
-            try:
-                conversion_lock_file.close()
-            except Exception:
-                pass
-
-            conversion_lock_file = None
-
-        return False
-
-
-def release_conversion_lock():
-    global conversion_lock_file
-
-    if conversion_lock_file is None:
-        return
-
-    try:
-        if platform.system() == "Windows":
-            import msvcrt
-
-            try:
-                conversion_lock_file.seek(0)
-
-                msvcrt.locking(
-                    conversion_lock_file.fileno(),
-                    msvcrt.LK_UNLCK,
-                    1
-                )
-
-            except Exception:
-                pass
-
-        else:
-            import fcntl
-
-            try:
-                fcntl.flock(
-                    conversion_lock_file.fileno(),
-                    fcntl.LOCK_UN
-                )
-
-            except Exception:
-                pass
-
-    finally:
-        try:
-            conversion_lock_file.close()
-        except Exception:
-            pass
-
-        conversion_lock_file = None
 
 
 # ==========================
@@ -347,6 +240,12 @@ def same_path(a, b):
         a = Path(a).expanduser().resolve()
         b = Path(b).expanduser().resolve()
 
+        try:
+            return os.path.samefile(a, b)
+
+        except OSError:
+            pass
+
         if platform.system() == "Windows":
             return str(a).lower() == str(b).lower()
 
@@ -397,25 +296,25 @@ def load_profile(name):
 # ==========================
 
 def append_error(path, reason=None):
+    finish_time = datetime.now().strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+
     with open(
         ERROR_FILE,
         "a",
         encoding="utf-8"
     ) as f:
-        if reason:
-            f.write(
-                f"{path} | {reason}\n"
-            )
-        else:
-            f.write(
-                f"{path}\n"
-            )
+        f.write(
+            f"{path} | {finish_time} | {reason}\n"
+        )
 
 
 def append_finished(
     dest,
     duration,
     t,
+    finish_time,
     size,
     percent
 ):
@@ -427,6 +326,7 @@ def append_finished(
         f.write(
             f"{dest} ({duration}) | "
             f"{t} | "
+            f"{finish_time} | "
             f"{size} | "
             f"{percent:.2f}%\n"
         )
@@ -551,11 +451,10 @@ def check_video(path, ffprobe):
         duration = float(
             result.stdout.strip()
         )
-
     except Exception:
         return False
 
-    return duration > 1.0
+    return duration > 0
 
 
 def get_video_duration_seconds(
@@ -646,6 +545,37 @@ def calc_duration(start, end):
         f"{m:02}:"
         f"{s:02}"
     )
+
+
+def validate_cut_times(queue):
+    problems = []
+
+    for item in queue:
+        start = item.get(
+            "start",
+            ""
+        )
+
+        end = item.get(
+            "end",
+            ""
+        )
+
+        if start and end:
+            try:
+                calc_duration(
+                    start,
+                    end
+                )
+            except ValueError as e:
+                problems.append(
+                    (
+                        item.get("file", ""),
+                        str(e)
+                    )
+                )
+
+    return problems
 
 
 # ==========================
@@ -812,12 +742,27 @@ def convert_one(
 
     if task.get("end"):
         if task.get("start"):
-            cmd += [
-                "-t",
-                calc_duration(
+            try:
+                cut_duration = calc_duration(
                     task["start"],
                     task["end"]
                 )
+            except ValueError as e:
+                append_error(
+                    source,
+                    str(e)
+                )
+
+                pause_error(
+                    "Error: Invalid cut times.",
+                    e
+                )
+
+                return False
+
+            cmd += [
+                "-t",
+                cut_duration
             ]
 
         else:
@@ -1049,6 +994,8 @@ def convert_one(
         new_size
         / old_size
         * 100
+        if old_size
+        else 0
     )
 
     if dest.exists():
@@ -1084,19 +1031,20 @@ def convert_one(
                 source
             )
 
-    append_finished(
-        str(dest),
-        duration_text,
-        format_time(elapsed),
-        format_size(new_size),
-        percent
-    )
-
     finish_time = (
         datetime.now()
         .strftime(
             "%Y-%m-%d %H:%M:%S"
         )
+    )
+
+    append_finished(
+        str(dest),
+        duration_text,
+        format_time(elapsed),
+        finish_time,
+        format_size(new_size),
+        percent
     )
 
     print(
@@ -1120,7 +1068,12 @@ def convert_videos():
     global current_ffmpeg_process
     global conversion_active
 
-    if not acquire_conversion_lock():
+    # Kernel-level single-instance lock (no lock file): the local
+    # variable holds it for the whole conversion; when this function
+    # returns (or raises) the lock is released automatically.
+    conversion_lock = acquire_single_instance("vidffmpeg_cli")
+
+    if not conversion_lock:
         print()
         print("=" * 70)
         print("Convert video")
@@ -1201,6 +1154,41 @@ def convert_videos():
                 return
 
             total = len(queue)
+
+            problems = validate_cut_times(
+                queue
+            )
+
+            if problems:
+                for path, reason in problems:
+                    append_error(
+                        path,
+                        reason
+                    )
+
+                print()
+                print("=" * 70)
+                print(
+                    "Invalid cut times detected "
+                    "in the queue."
+                )
+                print(
+                    "Conversion stopped."
+                )
+                print()
+
+                for path, reason in problems:
+                    print(
+                        f"{path}: {reason}"
+                    )
+
+                print("=" * 70)
+
+                wait_for_enter(
+                    "Press Enter to return to menu..."
+                )
+
+                return
 
             current_task = queue[0]
 
@@ -1365,4 +1353,4 @@ def convert_videos():
 
         stop_key_listener()
 
-        release_conversion_lock()
+    # conversion_lock is released when it goes out of scope
