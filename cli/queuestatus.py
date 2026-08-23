@@ -1,3 +1,4 @@
+import platform
 import subprocess
 import time
 from collections import defaultdict
@@ -50,7 +51,7 @@ def get_video_duration(file, ffprobe):
 def show_queue_stats():
     config = LoadConfig()
 
-    if config["ffprobe_win"].exists():
+    if platform.system() == "Windows":
         ffprobe = config["ffprobe_win"]
     else:
         ffprobe = config["ffprobe_linux"]
