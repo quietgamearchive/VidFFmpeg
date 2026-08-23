@@ -318,7 +318,7 @@ def show_config(root, config):
     )
 
     ok_button.place(
-        x=420,
+        x=430,
         y=400,
         width=70,
         height=30
@@ -332,7 +332,7 @@ def show_config(root, config):
     )
 
     cancel_button.place(
-        x=500,
+        x=510,
         y=400,
         width=70,
         height=30
@@ -356,7 +356,7 @@ def show_config(root, config):
     config_window.update_idletasks()
     root.update_idletasks()
 
-    window_width = 600
+    window_width = 590
     window_height = 450
 
     x = root.winfo_x() + (
