@@ -13,6 +13,8 @@ CONFIG_FILE = BASE_DIR / "config.json"
 
 
 DEFAULT_CONFIG = {
+    "Left": None,
+    "Top": None,
     "ffmpeg_win": "$/bin/ffmpeg.exe",
     "ffprobe_win": "$/bin/ffprobe.exe",
     "ffmpeg_linux": "$/bin/ffmpeg",
@@ -36,7 +38,39 @@ DEFAULT_CONFIG = {
 }
 
 
+def GetWindowPosition(config, screen_w, screen_h, window_w, window_h):
+    default_left = (screen_w - window_w) // 2
+    default_top = (screen_h - window_h) // 2
+
+    left = config.get("Left")
+    top = config.get("Top")
+
+    if isinstance(left, bool):
+        left = None
+    else:
+        try:
+            left = int(left) if left is not None else None
+        except (TypeError, ValueError):
+            left = None
+
+    if isinstance(top, bool):
+        top = None
+    else:
+        try:
+            top = int(top) if top is not None else None
+        except (TypeError, ValueError):
+            top = None
+
+    return (
+        default_left if left is None else left,
+        default_top if top is None else top
+    )
+
+
 def resolve_path(value):
+    if not isinstance(value, str):
+        return None
+
     path = Path(value)
 
     if value.startswith("$"):
@@ -85,12 +119,19 @@ def LoadConfig():
         "ffprobe_linux"
     }
 
-    return {
-        key: resolve_path(value)
-        if key in path_keys
-        else value
-        for key, value in config.items()
-    }
+    result = {}
+
+    for key, value in config.items():
+        if key in path_keys:
+            if not isinstance(value, str):
+                value = DEFAULT_CONFIG.get(key)
+
+            result[key] = resolve_path(value)
+
+        else:
+            result[key] = value
+
+    return result
 
 
 def SaveConfig(config):
