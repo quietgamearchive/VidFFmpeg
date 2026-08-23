@@ -3,12 +3,29 @@ from tkinter import filedialog
 from pathlib import Path
 from collections import defaultdict
 import json
+import os
 import subprocess
 import threading
 import time
+from datetime import datetime
 
 from .msgbox import show_message
 from .configwindow import show_config
+
+
+def _hidden_process_kwargs():
+    """Return platform-specific options for a background subprocess."""
+    if os.name != "nt":
+        return {}
+
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    startupinfo.wShowWindow = subprocess.SW_HIDE
+
+    return {
+        "startupinfo": startupinfo,
+        "creationflags": subprocess.CREATE_NO_WINDOW,
+    }
 
 
 def update_queue_info(info_label, queue_data):
@@ -77,12 +94,15 @@ def get_video_duration(
         str(file_path)
     ]
 
-    process = subprocess.Popen(
-        command,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True
-    )
+    popen_kwargs = {
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+        "text": True,
+    }
+    popen_kwargs.update(_hidden_process_kwargs())
+
+    process = subprocess.Popen(command, **popen_kwargs)
 
     while True:
         if cancel_event and cancel_event.is_set():
@@ -137,6 +157,9 @@ def show_about(
         f"{window_title}\n"
         "\n"
         "VidFFmpeg is a lightweight FFmpeg batch transcoding queue manager.\n"
+        "\n"
+        "\n"
+        "Tip: Middle click on the \"Current\" queue list to modify an item, then press ENTER to confirm."
         # "\n"
         # "Copyright © 2026\n"
         # "All rights reserved."
@@ -241,6 +264,32 @@ def show_queue_info(
     )
 
 
+def _append_cut_time_errors(problems):
+    error_file = (
+        Path(__file__).parent.parent
+        / "error.txt"
+    )
+
+    finish_time = datetime.now().strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+
+    try:
+        with open(
+            error_file,
+            "a",
+            encoding="utf-8"
+        ) as f:
+            for path, reason in problems:
+                f.write(
+                    f"{path} | "
+                    f"{finish_time} | "
+                    f"{reason}\n"
+                )
+    except OSError:
+        pass
+
+
 def show_queue_statistics(
     root,
     queue_data,
@@ -267,6 +316,7 @@ def show_queue_statistics(
     total_seconds = 0
 
     probe_items = []
+    invalid_items = []
 
     for item in queue:
         profile = item.get(
@@ -291,6 +341,20 @@ def show_queue_statistics(
             cut_count += 1
 
         if start and end:
+            if (
+                time_to_seconds(end)
+                <= time_to_seconds(start)
+            ):
+                invalid_items.append(
+                    (
+                        item.get("file", ""),
+                        "End time must be greater "
+                        "than start time."
+                    )
+                )
+
+                continue
+
             total_seconds += (
                 time_to_seconds(end)
                 - time_to_seconds(start)
@@ -303,6 +367,26 @@ def show_queue_statistics(
 
         else:
             probe_items.append(item)
+
+    if invalid_items:
+        _append_cut_time_errors(
+            invalid_items
+        )
+
+        show_message(
+            root,
+            "Queue Statistics",
+            (
+                "The queue contains tasks with "
+                "invalid cut times "
+                "(end must be greater than start).\n\n"
+                "Statistics will not be shown."
+            ),
+            icon="error",
+            buttons="ok"
+        )
+
+        return
 
     progress_window = tk.Toplevel(root)
     progress_window.withdraw()
