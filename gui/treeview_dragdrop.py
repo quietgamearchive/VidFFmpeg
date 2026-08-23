@@ -276,6 +276,7 @@ def setup_drag_drop(
                     len(queue_data) - 1
                 ),
                 values=(
+                    len(queue_data),
                     str(path),
                     state["profile"],
                     start,
