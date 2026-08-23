@@ -3,12 +3,24 @@ Changelog
 
 VidFFmpeg_CLI
 
-v1.00 Rev.260817
+v0.02 Rev.260823
+Some optimizations and improvements
+
+v0.01 Rev.260817
 Initial version, combining the functionality of the two previous scripts.
 
 -------------------------------
 
 VidFFmpeg_GUI
 
-v1.00 Rev.260817
+v0.02 Rev.260823
+Fixed: using Queue Statistics no longer spawns many temporary ffprobe command windows
+Added Finished and Error pages (the original queue is now on the Current page)
+Improved middle-click editing and right-click move behavior in the queue list
+Added "Close Application" feature — closes the program after the current conversion finishes
+The window position is now saved on close and restored on the next launch
+Replaced the icon
+Various other minor improvements
+
+v0.01 Rev.260817
 Initial version.
