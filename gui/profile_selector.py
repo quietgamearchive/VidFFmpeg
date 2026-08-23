@@ -58,7 +58,6 @@ def create_profile_selector(
     parent,
     profile_dir,
     config,
-    save_config,
     x=1000,
     y=5,
     width=300,
@@ -108,7 +107,6 @@ def create_profile_selector(
 
             if current_value != "":
                 config["current_profile"] = ""
-                save_config(config)
 
             return
 
@@ -124,7 +122,6 @@ def create_profile_selector(
 
             if current_value != "":
                 config["current_profile"] = ""
-                save_config(config)
 
     def profile_selected(event=None):
         new_profile = profile_combobox.get()
@@ -169,8 +166,6 @@ def create_profile_selector(
             return
 
         config["current_profile"] = new_profile
-
-        save_config(config)
 
     profile_combobox.configure(
         postcommand=refresh_profiles
