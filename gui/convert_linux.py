@@ -3,6 +3,7 @@ import os
 import re
 import signal
 import subprocess
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -64,6 +65,35 @@ def time_to_seconds(value):
 
     except Exception:
         return 0
+
+
+def calc_duration(start, end):
+    start_seconds = time_to_seconds(start)
+    end_seconds = time_to_seconds(end)
+
+    seconds = end_seconds - start_seconds
+
+    if seconds <= 0:
+        raise ValueError(
+            "End time must be greater than start time."
+        )
+
+    return seconds
+
+
+def validate_trim_times(start, end, duration):
+    start_seconds = time_to_seconds(start)
+    end_seconds = time_to_seconds(end)
+
+    if start and start_seconds > duration:
+        raise ValueError(
+            "Start time must not be greater than the video duration."
+        )
+
+    if end and end_seconds > duration:
+        raise ValueError(
+            "End time must not be greater than the video duration."
+        )
 
 
 def make_output(source, profile):
@@ -196,13 +226,17 @@ def append_error(
     path,
     reason
 ):
+    finish_time = datetime.now().strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+
     with open(
         error_file,
         "a",
         encoding="utf-8"
     ) as f:
         f.write(
-            f"{path} | {reason}\n"
+            f"{path} | {finish_time} | {reason}\n"
         )
 
 
@@ -211,6 +245,7 @@ def append_finished(
     destination,
     duration,
     elapsed,
+    finish_time,
     size,
     percent
 ):
@@ -223,6 +258,7 @@ def append_finished(
             f"{destination} "
             f"({duration}) | "
             f"{elapsed} | "
+            f"{finish_time} | "
             f"{size} | "
             f"{percent:.2f}%\n"
         )
@@ -232,17 +268,23 @@ class FFmpegProcess:
     def __init__(self):
         self.process = None
         self._suspended = False
+        self._stop_requested = False
+        self._lock = threading.Lock()
 
     def start(self, command):
-        self.process = subprocess.Popen(
-            command,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            bufsize=1
-        )
+        with self._lock:
+            if self._stop_requested:
+                return None
+
+            self.process = subprocess.Popen(
+                command,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                bufsize=1
+            )
 
         return self.process
 
@@ -285,30 +327,33 @@ class FFmpegProcess:
             return False
 
     def stop(self):
-        if not self.process:
-            return
+        with self._lock:
+            self._stop_requested = True
 
-        try:
-            if self._suspended:
-                os.kill(
-                    self.process.pid,
-                    signal.SIGCONT
-                )
+            if not self.process:
+                return
 
-            if self.process.poll() is None:
-                self.process.terminate()
-
-                try:
-                    self.process.wait(
-                        timeout=5
+            try:
+                if self._suspended:
+                    os.kill(
+                        self.process.pid,
+                        signal.SIGCONT
                     )
-                except subprocess.TimeoutExpired:
-                    self.process.kill()
 
-        except Exception:
-            pass
+                if self.process.poll() is None:
+                    self.process.terminate()
 
-        self._suspended = False
+                    try:
+                        self.process.wait(
+                            timeout=5
+                        )
+                    except subprocess.TimeoutExpired:
+                        self.process.kill()
+
+            except Exception:
+                pass
+
+            self._suspended = False
 
     def wait(self):
         if self.process:
@@ -331,7 +376,8 @@ def convert_task(
     process_controller,
     progress_callback,
     info_callback,
-    stop_event
+    stop_event,
+    finished_callback=None
 ):
     source = Path(
         task["file"]
@@ -371,6 +417,9 @@ def convert_task(
         ffprobe_path
     )
 
+    if stop_event.is_set():
+        return False, "Conversion stopped."
+
     if duration is None:
         reason = (
             "Unable to read source duration."
@@ -394,11 +443,40 @@ def convert_task(
         ""
     )
 
-    if start_time and end_time:
-        target_duration = (
-            time_to_seconds(end_time)
-            - time_to_seconds(start_time)
+    try:
+        validate_trim_times(
+            start_time,
+            end_time,
+            duration
         )
+    except ValueError as e:
+        reason = str(e)
+
+        append_error(
+            error_file,
+            source,
+            reason
+        )
+
+        return False, reason
+
+    if start_time and end_time:
+        try:
+            target_duration = calc_duration(
+                start_time,
+                end_time
+            )
+        except ValueError as e:
+            reason = str(e)
+
+            append_error(
+                error_file,
+                source,
+                reason
+            )
+
+            return False, reason
+
     elif end_time:
         target_duration = time_to_seconds(
             end_time
@@ -415,6 +493,13 @@ def convert_task(
         target_duration,
         0.001
     )
+
+    original_duration_text = format_time(duration)
+    if start_time or end_time:
+        original_duration_text += (
+            f" ({start_time or 'Start'} - "
+            f"{end_time or 'End'})"
+        )
 
     destination = make_output(
         source,
@@ -495,6 +580,15 @@ def convert_task(
             reason
         )
         return False, reason
+
+    if process_controller.process is None:
+        if temporary.exists():
+            try:
+                temporary.unlink()
+            except Exception:
+                pass
+
+        return False, "Conversion stopped."
 
     start_timestamp = time.time()
 
@@ -604,6 +698,9 @@ def convert_task(
                     pass
 
             last_line = line
+
+        if stop_event.is_set():
+            process_controller.stop()
 
         return_code = process_controller.wait()
 
@@ -733,14 +830,24 @@ def convert_task(
             - start_timestamp
         )
 
+        finished_elapsed = format_time(elapsed)
+        finish_time = datetime.now().strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+        finished_size = format_size(new_size)
+
         append_finished(
             finished_file,
             destination,
-            format_time(target_duration),
-            format_time(elapsed),
-            format_size(new_size),
+            original_duration_text,
+            finished_elapsed,
+            finish_time,
+            finished_size,
             percent_size
         )
+
+        if finished_callback is not None:
+            finished_callback()
 
         progress_callback(
             "100.00%"
@@ -775,5 +882,6 @@ def convert_task(
         return False, reason
 
     finally:
-        process_controller.process = None
-        process_controller._suspended = False
+        with process_controller._lock:
+            process_controller.process = None
+            process_controller._suspended = False
