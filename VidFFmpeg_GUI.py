@@ -1,6 +1,28 @@
 import sys
 sys.dont_write_bytecode = True
 
+
+
+
+# Detach from the parent console when run by python.exe (dev mode only).
+if sys.platform == "win32" and not getattr(sys, "frozen", False):
+    import ctypes
+    import io
+
+    kernel32 = ctypes.windll.kernel32
+
+    if kernel32.GetConsoleWindow() and kernel32.FreeConsole():
+        # Detached from the console: discard stdout/stderr so later
+        # print() calls do not raise OSError on the invalid handle.
+        sys.stdout = io.StringIO()
+        sys.stderr = io.StringIO()
+
+
+
+
+
+
+
 from tkinterdnd2 import TkinterDnD
 import tkinter as tk
 from tkinter import ttk
@@ -8,8 +30,9 @@ import json
 from pathlib import Path
 import os
 import re
-import atexit
 from tkinter import messagebox
+
+
 
 
 if getattr(sys, "frozen", False):
@@ -26,8 +49,17 @@ from gui.treeview import (
 from gui.treeview_dragdrop import setup_drag_drop
 from gui.btns import create_control_buttons
 from gui.debug import update_title
-from gui.config import LoadConfig, SaveConfig
+from gui.config import (
+    GetWindowPosition,
+    LoadConfig,
+    SaveConfig
+)
 from gui.profile_selector import create_profile_selector
+from gui.paged_treeview import (
+    ErrorTreeview,
+    FinishedTreeview,
+    create_pages
+)
 
 
 WINDOW_WIDTH = 1500
@@ -38,81 +70,28 @@ DEBUG_POSITION = False
 
 WINDOW_TITLE = (
     "VidFFmpeg - GUI "
-    + "v1.00 Rev.260817"
+    + "v0.02 Rev.260823"
 )
 
 QUEUE_FILE = "queue.json"
 PROFILE_DIR = "profiles"
-LOCK_FILE = "vf_gui.lock"
 
 queue_file = BASE_DIR / QUEUE_FILE
 profile_dir = BASE_DIR / PROFILE_DIR
-lock_file = BASE_DIR / LOCK_FILE
-
-_instance_handle = None
 
 
-def acquire_single_instance():
-    """Acquire an advisory lock on the lock file."""
-    global _instance_handle
+# Kernel-level single-instance lock (no lock file): the returned
+# object must stay referenced for the whole process lifetime.
+from common.single_instance import acquire_single_instance
 
-    instance_handle = open(lock_file, "a+b")
-    try:
-        if os.name == "nt":
-            import msvcrt
+_instance_lock = acquire_single_instance("vidffmpeg_gui")
 
-            instance_handle.seek(0)
-            if not instance_handle.read(1):
-                instance_handle.seek(0)
-                instance_handle.write(b" ")
-                instance_handle.flush()
-            instance_handle.seek(0)
-            msvcrt.locking(instance_handle.fileno(), msvcrt.LK_NBLCK, 1)
-        else:
-            import fcntl
-
-            fcntl.flock(
-                instance_handle.fileno(),
-                fcntl.LOCK_EX | fcntl.LOCK_NB
-            )
-    except OSError:
-        instance_handle.close()
-        messagebox.showwarning(
-            "VidFFmpeg",
-            "VidFFmpeg 已经在运行中。\n请使用已经打开的窗口。"
-        )
-        return False
-
-    _instance_handle = instance_handle
-    atexit.register(release_single_instance)
-    return True
-
-
-def release_single_instance():
-    """Release the lock and remove the per-process lock file."""
-    global _instance_handle
-
-    if _instance_handle is None:
-        return
-
-    try:
-        if os.name == "nt":
-            import msvcrt
-
-            _instance_handle.seek(0)
-            msvcrt.locking(_instance_handle.fileno(), msvcrt.LK_UNLCK, 1)
-        else:
-            import fcntl
-
-            fcntl.flock(_instance_handle.fileno(), fcntl.LOCK_UN)
-    except OSError:
-        pass
-    finally:
-        _instance_handle.close()
-        _instance_handle = None
-
-
-if not acquire_single_instance():
+if not _instance_lock:
+    messagebox.showwarning(
+        "VidFFmpeg",
+        "VidFFmpeg is already running.\n"
+        "Please use the already opened window."
+    )
     raise SystemExit(0)
 
 
@@ -225,21 +204,41 @@ config = LoadConfig()
 
 
 root = TkinterDnD.Tk()
+root.withdraw()
 
-root.iconbitmap(
-    BASE_DIR / "VidFFmpeg.ico"
-)
+# root.iconbitmap(
+#     BASE_DIR / "VidFFmpeg.ico"
+# )
+
+if getattr(sys, "frozen", False):
+    pass  # Packaged build: no icon set here, let the exe icon take over
+else:
+    root.iconbitmap(BASE_DIR / "VidFFmpeg.ico")  # Dev build only
 
 
 screen_w = root.winfo_screenwidth()
 screen_h = root.winfo_screenheight()
 
-x = (screen_w - WINDOW_WIDTH) // 2
-y = (screen_h - WINDOW_HEIGHT) // 2
+x, y = GetWindowPosition(
+    config,
+    screen_w,
+    screen_h,
+    WINDOW_WIDTH,
+    WINDOW_HEIGHT
+)
 
 root.geometry(
     f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}+{x}+{y}"
 )
+
+
+def save_window_config():
+    config["Left"] = root.winfo_x()
+    config["Top"] = root.winfo_y()
+    SaveConfig(config)
+
+
+root.save_window_config = save_window_config
 
 root.resizable(
     False,
@@ -255,7 +254,6 @@ profile_combobox = create_profile_selector(
     root,
     profile_dir,
     config,
-    SaveConfig,
     x=1050,
     y=5,
     width=430,
@@ -267,6 +265,7 @@ info_label = tk.Label(
     text="Statistics\n2222",
     anchor="nw",
     justify="left",
+    wraplength=0,
     height=6,
     fg="blue",
     font=("TkDefaultFont", 10, "bold"),
@@ -302,7 +301,8 @@ action_combobox = ttk.Combobox(
     root,
     values=(
         "No Action",
-        "Stop After Current Task"
+        "Stop After Current Task",
+        "Close Application"
     ),
     state="readonly"
 )
@@ -330,8 +330,10 @@ action_combobox.place(
 )
 
 
+pages, current_page, finished_page, error_page = create_pages(root)
+
 tree = create_treeview(
-    root,
+    current_page,
     queue_data,
     get_profiles,
     validate_file,
@@ -340,6 +342,20 @@ tree = create_treeview(
     info_label,
     BASE_DIR
 )
+
+finished_treeview = FinishedTreeview(
+    finished_page,
+    BASE_DIR / "finished.txt"
+)
+
+root.finished_treeview = finished_treeview
+
+error_treeview = ErrorTreeview(
+    error_page,
+    BASE_DIR / "error.txt"
+)
+
+root.error_treeview = error_treeview
 
 setup_drag_drop(
     root,
@@ -375,6 +391,8 @@ update_title(
     DEBUG_POSITION
 )
 
+root.update_idletasks()
+root.deiconify()
 
 
 root.mainloop()
