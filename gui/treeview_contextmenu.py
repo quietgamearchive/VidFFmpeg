@@ -20,6 +20,28 @@ def get_selected_indexes(tree):
     return sorted(indexes)
 
 
+def is_converting_item(tree, item):
+    return bool(
+        str(tree.set(item, "progress")).strip()
+    )
+
+
+def is_converting_index(tree, index):
+    children = tree.get_children()
+
+    if index < 0 or index >= len(children):
+        return False
+
+    return is_converting_item(tree, children[index])
+
+
+def selected_contains_converting_item(tree, indexes):
+    return any(
+        is_converting_index(tree, index)
+        for index in indexes
+    )
+
+
 def refresh_tree(tree, queue_data):
     tree.delete(*tree.get_children())
 
@@ -29,6 +51,7 @@ def refresh_tree(tree, queue_data):
             "end",
             text=str(index),
             values=(
+                index + 1,
                 item.get("file", ""),
                 item.get("profile", ""),
                 item.get("start", ""),
@@ -50,13 +73,13 @@ def move_up(
     if not indexes:
         return
 
-    if (
-        is_conversion_running()
-        and indexes[0] <= 1
-    ):
+    if indexes[0] <= 0:
         return
 
-    if indexes[0] <= 0:
+    if selected_contains_converting_item(tree, indexes):
+        return
+
+    if is_converting_index(tree, indexes[0] - 1):
         return
 
     for index in indexes:
@@ -95,15 +118,15 @@ def move_down(
     if not indexes:
         return
 
-    if (
-        is_conversion_running()
-        and 0 in indexes
-    ):
+    if selected_contains_converting_item(tree, indexes):
         return
 
     last_index = len(queue_data) - 1
 
     if indexes[-1] >= last_index:
+        return
+
+    if is_converting_index(tree, indexes[-1] + 1):
         return
 
     for index in reversed(indexes):
@@ -142,11 +165,12 @@ def move_to_top(
     if not indexes:
         return
 
-    if (
-        is_conversion_running()
-        and any(index != 0 for index in indexes)
-    ):
+    if selected_contains_converting_item(tree, indexes):
         return
+
+    active_prefix_length = 0
+    while is_converting_index(tree, active_prefix_length):
+        active_prefix_length += 1
 
     selected_items = [
         queue_data[index]
@@ -159,7 +183,11 @@ def move_to_top(
         if index not in indexes
     ]
 
-    queue_data[:] = selected_items + remaining_items
+    queue_data[:] = (
+        remaining_items[:active_prefix_length]
+        + selected_items
+        + remaining_items[active_prefix_length:]
+    )
 
     save_queue()
 
@@ -170,7 +198,10 @@ def move_to_top(
 
     new_selection = []
 
-    for index in range(len(selected_items)):
+    for index in range(
+        active_prefix_length,
+        active_prefix_length + len(selected_items)
+    ):
         new_selection.append(
             tree.get_children()[index]
         )
@@ -192,10 +223,7 @@ def move_to_bottom(
     if not indexes:
         return
 
-    if (
-        is_conversion_running()
-        and 0 in indexes
-    ):
+    if selected_contains_converting_item(tree, indexes):
         return
 
     selected_items = [
