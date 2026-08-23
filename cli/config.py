@@ -16,6 +16,8 @@ QUEUE_FILE = BASE_DIR / "queue.json"
 
 
 DEFAULT_CONFIG = {
+    "Left": None,
+    "Top": None,
     "ffmpeg_win": "$/bin/ffmpeg.exe",
     "ffprobe_win": "$/bin/ffprobe.exe",
     "ffmpeg_linux": "$/bin/ffmpeg",
