@@ -1,5 +1,6 @@
 import sys
 import threading
+from datetime import datetime
 from pathlib import Path
 
 import tkinter as tk
@@ -7,6 +8,26 @@ import tkinter as tk
 from .msgbox import show_message
 from . import treeview
 from .profile_selector import profile_combobox
+
+
+def _time_to_seconds(value):
+    if not value:
+        return 0
+
+    try:
+        parts = value.split(":")
+
+        if len(parts) != 3:
+            return 0
+
+        return (
+            int(parts[0]) * 3600
+            + int(parts[1]) * 60
+            + int(parts[2])
+        )
+
+    except Exception:
+        return 0
 
 
 def check_ffmpeg_environment(
@@ -94,8 +115,13 @@ def create_control_buttons(
         "profile_dir": None,
         "finished_file": None,
         "error_file": None,
+        "finished_callback": None,
         "close_requested": False
     }
+
+    def close_root():
+        root.save_window_config()
+        root.destroy()
 
     def get_profile_widget():
         try:
@@ -166,6 +192,19 @@ def create_control_buttons(
         state["controller"] = None
         state["thread"] = None
 
+    def finish_and_close():
+        finish_ui()
+        close_root()
+
+    def finish_action():
+        match root.action_index:
+            case 0:
+                finish_ui()
+            case 1:
+                finish_ui()
+            case 2:
+                finish_and_close()
+
     def update_progress(value):
         root.after(
             0,
@@ -186,6 +225,36 @@ def create_control_buttons(
             )
         )
 
+    def update_finished():
+        finished_treeview = getattr(
+            root,
+            "finished_treeview",
+            None
+        )
+
+        if finished_treeview is None:
+            return
+
+        root.after(
+            0,
+            finished_treeview.reload
+        )
+
+    def update_error():
+        error_treeview = getattr(
+            root,
+            "error_treeview",
+            None
+        )
+
+        if error_treeview is None:
+            return
+
+        root.after(
+            0,
+            error_treeview.reload
+        )
+
     def enable_pause_when_ready():
         if not state["running"]:
             return
@@ -204,6 +273,32 @@ def create_control_buttons(
         )
 
     def process_queue():
+        try:
+            run_conversion_loop()
+
+        except Exception as e:
+            controller = state[
+                "controller"
+            ]
+
+            if controller:
+                controller.stop()
+
+            if state["stop_event"].is_set():
+                root.after(
+                    0,
+                    finish_ui
+                )
+
+                return
+
+            root.after(
+                0,
+                lambda reason=f"Unexpected conversion thread error: {e}":
+                conversion_error(reason)
+            )
+
+    def run_conversion_loop():
         if not state["queue_data"]:
             root.after(
                 0,
@@ -242,18 +337,31 @@ def create_control_buttons(
         ):
             task = state["queue_data"][0]
 
-            success, reason = convert_task(
-                task,
-                state["profile_dir"],
-                state["ffmpeg_path"],
-                state["ffprobe_path"],
-                state["finished_file"],
-                state["error_file"],
-                controller,
-                update_progress,
-                update_info,
-                state["stop_event"]
-            )
+            try:
+                success, reason = convert_task(
+                    task,
+                    state["profile_dir"],
+                    state["ffmpeg_path"],
+                    state["ffprobe_path"],
+                    state["finished_file"],
+                    state["error_file"],
+                    controller,
+                    update_progress,
+                    update_info,
+                    state["stop_event"],
+                    state["finished_callback"]
+                )
+            except Exception as e:
+                if state["stop_event"].is_set():
+                    root.after(0, finish_ui)
+                    return
+
+                root.after(
+                    0,
+                    lambda reason=f"Unexpected conversion error: {e}":
+                    conversion_error(reason)
+                )
+                return
 
             if state["stop_event"].is_set():
                 root.after(
@@ -282,7 +390,17 @@ def create_control_buttons(
                     0
                 )
 
-            state["save_queue"]()
+            try:
+                state["save_queue"]()
+
+            except Exception as e:
+                root.after(
+                    0,
+                    lambda reason=f"Failed to save queue: {e}":
+                    conversion_error(reason)
+                )
+
+                return
 
             root.after(
                 0,
@@ -291,19 +409,30 @@ def create_control_buttons(
                 )
             )
 
+            action_index = root.action_index
+
             if not state["queue_data"]:
                 root.after(
                     0,
-                    finish_ui
+                    finish_action
                 )
                 return
 
-            if getattr(root, "action_index", 0) == 1:
-                root.after(
-                    0,
-                    finish_ui
-                )
-                return
+            match action_index:
+                case 0:
+                    pass
+                case 1:
+                    root.after(
+                        0,
+                        finish_ui
+                    )
+                    return
+                case 2:
+                    root.after(
+                        0,
+                        finish_and_close
+                    )
+                    return
 
         root.after(
             0,
@@ -322,6 +451,7 @@ def create_control_buttons(
             )
 
         finish_ui()
+        update_error()
 
         show_message(
             root,
@@ -398,6 +528,64 @@ def create_control_buttons(
             Path(__file__).parent.parent
         )
 
+        invalid_items = []
+
+        for item in queue_data:
+            start = item.get(
+                "start",
+                ""
+            )
+
+            end = item.get(
+                "end",
+                ""
+            )
+
+            if start and end:
+                if (
+                    _time_to_seconds(end)
+                    <= _time_to_seconds(start)
+                ):
+                    invalid_items.append(
+                        item.get("file", "")
+                    )
+
+        if invalid_items:
+            finish_time = datetime.now().strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
+
+            try:
+                with open(
+                    base_dir / "error.txt",
+                    "a",
+                    encoding="utf-8"
+                ) as f:
+                    for file_path in invalid_items:
+                        f.write(
+                            f"{file_path} | "
+                            f"{finish_time} | "
+                            "End time must be greater "
+                            "than start time.\n"
+                        )
+            except Exception:
+                pass
+
+            show_message(
+                root,
+                "Invalid Cut Times",
+                (
+                    "The queue contains tasks with "
+                    "invalid cut times "
+                    "(end must be greater than start).\n\n"
+                    "Conversion will not start."
+                ),
+                icon="error",
+                buttons="ok"
+            )
+
+            return
+
         state["queue_data"] = queue_data
         state["save_queue"] = getattr(
             root,
@@ -430,6 +618,7 @@ def create_control_buttons(
         state["error_file"] = (
             base_dir / "error.txt"
         )
+        state["finished_callback"] = update_finished
 
         state["stop_event"].clear()
         state["running"] = True
@@ -497,7 +686,7 @@ def create_control_buttons(
             return
 
         if not state["running"]:
-            root.destroy()
+            close_root()
             return
 
         result = show_message(
@@ -536,7 +725,7 @@ def create_control_buttons(
                 )
                 return
 
-            root.destroy()
+            close_root()
 
         wait_for_finish()
 
