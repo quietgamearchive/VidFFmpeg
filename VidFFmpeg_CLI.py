@@ -27,7 +27,10 @@ from cli.convert import convert_videos
 from cli.startup_check_ffmpeg import check_ffmpeg_paths
 
 
-APP_TITLE = "VidFFmpeg - CLI v1.00 Rev.260817"
+APP_TITLE = (
+    "VidFFmpeg - CLI "
+    + "v0.02 Rev.260823"
+)
 
 
 def wait_exit():
