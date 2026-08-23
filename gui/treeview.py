@@ -2,6 +2,10 @@ import tkinter as tk
 from tkinter import ttk
 
 from .treeview_contextmenu import create_context_menu
+from .paged_treeview import (
+    NUM_COLUMN_STRETCH,
+    NUM_COLUMN_WIDTH,
+)
 
 
 tree = None
@@ -39,6 +43,7 @@ def refresh_tree(queue_data):
             "end",
             text=str(index),
             values=(
+                index + 1,
                 item.get("file", ""),
                 item.get("profile", ""),
                 item.get("start", ""),
@@ -138,6 +143,10 @@ def cancel_editor(
     hide_editor()
 
 
+def ignore_middle_click(event):
+    return "break"
+
+
 def save_editor(
     event,
     queue_data,
@@ -167,10 +176,10 @@ def save_editor(
         return
 
     key = {
-        "#1": "file",
-        "#2": "profile",
-        "#3": "start",
-        "#4": "end"
+        "#2": "file",
+        "#3": "profile",
+        "#4": "start",
+        "#5": "end"
     }[editor_column]
 
     if key == "file":
@@ -283,10 +292,10 @@ def start_edit(
         return
 
     if column not in (
-        "#1",
         "#2",
         "#3",
-        "#4"
+        "#4",
+        "#5"
     ):
         return
 
@@ -308,7 +317,7 @@ def start_edit(
         column
     )
 
-    if column == "#2":
+    if column == "#3":
         editor = ttk.Combobox(
             tree,
             values=get_profiles(),
@@ -343,6 +352,17 @@ def start_edit(
 
     editor.focus_set()
 
+    for sequence in (
+        "<Button-2>",
+        "<B2-Motion>",
+        "<ButtonRelease-2>",
+        "<<PasteSelection>>",
+    ):
+        editor.bind(
+            sequence,
+            ignore_middle_click,
+        )
+
     lock_tree_position(
         root
     )
@@ -364,13 +384,6 @@ def start_edit(
         cancel_editor
     )
 
-    root.bind(
-        "<Button-1>",
-        click_outside,
-        add="+"
-    )
-
-
 def create_treeview(
     parent,
     queue_data,
@@ -386,6 +399,7 @@ def create_treeview(
     tree = ttk.Treeview(
         parent,
         columns=(
+            "num",
             "file",
             "profile",
             "start",
@@ -394,6 +408,11 @@ def create_treeview(
         ),
         show="headings",
         selectmode="extended"
+    )
+
+    tree.heading(
+        "num",
+        text="Num"
     )
 
     tree.heading(
@@ -419,6 +438,13 @@ def create_treeview(
     tree.heading(
         "progress",
         text="Progress"
+    )
+
+    tree.column(
+        "num",
+        width=NUM_COLUMN_WIDTH,
+        anchor="center",
+        stretch=NUM_COLUMN_STRETCH
     )
 
     tree.column(
@@ -449,30 +475,21 @@ def create_treeview(
         anchor="center"
     )
 
-    tree_x = 5
-    tree_y = 50
-    tree_width = 1470
-    tree_height = 485
-    scroll_width = 20
-
-    tree.place(
-        x=tree_x,
-        y=tree_y,
-        width=tree_width,
-        height=tree_height
-    )
-
     scroll = ttk.Scrollbar(
         parent,
         orient="vertical",
         command=tree.yview
     )
 
-    scroll.place(
-        x=tree_x + tree_width,
-        y=tree_y,
-        width=scroll_width,
-        height=tree_height
+    tree.pack(
+        side=tk.LEFT,
+        fill=tk.BOTH,
+        expand=True
+    )
+
+    scroll.pack(
+        side=tk.RIGHT,
+        fill=tk.Y
     )
 
     tree.configure(
@@ -502,8 +519,14 @@ def create_treeview(
         clear_selection_on_blank
     )
 
+    tree.bind(
+        "<Button-1>",
+        click_outside,
+        add="+"
+    )
+
     create_context_menu(
-        parent,
+        parent.winfo_toplevel(),
         tree,
         queue_data,
         save_queue,
